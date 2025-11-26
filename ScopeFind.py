@@ -12,9 +12,18 @@ from pathlib import Path
 from typing import List
 
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal
 from textual.widgets import Header, Footer, Input, DataTable, Static
 
+
+# ==============================
+#  App Metadata
+# ==============================
+__version__ = "dev"
+
+
+# ==============================
+#  Ignore & Filters
+# ==============================
 IGNORE_DIRS = {
     ".git",
     ".hg",
@@ -29,7 +38,11 @@ SEARCH_EXTS = {".py", ".ipynb"}
 MAX_MATCHES = 1000
 
 
+# ==============================
+#  Binary File Check
+# ==============================
 def is_binary_file(path: Path, blocksize: int = 1024) -> bool:
+    """簡易バイナリ判定: 先頭 blocksize バイト中に NUL があればバイナリとみなす。"""
     try:
         with path.open("rb") as f:
             chunk = f.read(blocksize)
@@ -37,9 +50,13 @@ def is_binary_file(path: Path, blocksize: int = 1024) -> bool:
                 return False
             return b"\0" in chunk
     except OSError:
+        # 読めないファイルは一旦バイナリ扱いにして除外
         return True
 
 
+# ==============================
+#  Data Model
+# ==============================
 @dataclass
 class Match:
     path: Path
@@ -49,7 +66,12 @@ class Match:
     size: int
 
 
-class CodeSearchApp(App):
+# ==============================
+#  UI Application
+# ==============================
+class ScopeFindApp(App):
+    """Textual based TUI incremental code search tool."""
+
     CSS = """
     Screen {
         layout: vertical;
@@ -103,10 +125,12 @@ class CodeSearchApp(App):
         self.sort_key: str = "name"
         self.matches: List[Match] = []
 
+    # --------------- UI Layout ---------------
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(f"Dir: {self.start_dir}", id="dir_label")
-        yield Input(placeholder="Search pattern (literal match, not regex)", id="pattern_input")
+        yield Input(placeholder="Search pattern (literal match)", id="pattern_input")
         yield Static("", id="toolbar")
         yield Static("Enter pattern to search.", id="status")
         yield DataTable(id="results")
@@ -121,6 +145,8 @@ class CodeSearchApp(App):
         self.update_toolbar()
         self.update_status("Enter pattern to search.")
 
+    # --------------- UI Helpers ---------------
+
     def update_toolbar(self) -> None:
         sort_name = {"name": "NAME", "date": "DATE", "size": "SIZE"}[self.sort_key]
         py_label = "ON" if self.include_py else "OFF"
@@ -129,7 +155,7 @@ class CodeSearchApp(App):
             f"Sort: {sort_name} | "
             f".py: {py_label} | "
             f"Binary: {bin_label} | "
-            f"F2/F3/F4: sort, F5/F6: filter, '/': focus search, q: quit"
+            f"F2/F3/F4: sort, F5/F6: filter, '/': search, q: quit"
         )
         self.query_one("#toolbar", Static).update(toolbar)
 
@@ -139,7 +165,6 @@ class CodeSearchApp(App):
     def refresh_table(self) -> None:
         table = self.query_one("#results", DataTable)
         table.clear()
-
         if not self.matches:
             return
 
@@ -151,6 +176,8 @@ class CodeSearchApp(App):
             size_str = str(m.size)
             dt_str = datetime.fromtimestamp(m.mtime).strftime("%Y-%m-%d %H:%M")
             table.add_row(str(idx), relpath, str(m.lineno), preview, size_str, dt_str)
+
+    # --------------- Search Logic ---------------
 
     def run_search(self) -> None:
         pat = self.pattern
@@ -170,13 +197,13 @@ class CodeSearchApp(App):
             for name in files:
                 total_files += 1
                 path = Path(root) / name
-
                 ext = path.suffix
+
+                # 拡張子 & バイナリフィルタ
                 if ext not in SEARCH_EXTS:
                     continue
                 if ext == ".py" and not self.include_py:
                     continue
-
                 if not self.include_binary and is_binary_file(path):
                     continue
 
@@ -210,17 +237,16 @@ class CodeSearchApp(App):
         self.sort_matches()
 
         if matches:
-            extra = ""
-            if len(matches) >= MAX_MATCHES:
-                extra = f" (truncated to {MAX_MATCHES})"
+            extra = f" (truncated to {MAX_MATCHES})" if len(matches) >= MAX_MATCHES else ""
             self.update_status(
-                f"Pattern '{pat}' : {len(matches)} matches "
-                f"in {used_files}/{total_files} files{extra}."
+                f"Pattern '{pat}' : {len(matches)} matches in {used_files}/{total_files} files{extra}."
             )
         else:
             self.update_status(f"No matches for: '{pat}'")
 
         self.refresh_table()
+
+    # --------------- Sort ---------------
 
     def sort_matches(self) -> None:
         if not self.matches:
@@ -233,10 +259,14 @@ class CodeSearchApp(App):
         elif self.sort_key == "size":
             self.matches.sort(key=lambda m: (m.size, str(m.path)), reverse=True)
 
+    # --------------- Event Handlers ---------------
+
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "pattern_input":
             self.pattern = event.value
             self.run_search()
+
+    # --------------- Key Actions ---------------
 
     def action_focus_search(self) -> None:
         self.query_one("#pattern_input", Input).focus()
@@ -284,9 +314,12 @@ class CodeSearchApp(App):
             pass
 
 
+# ==============================
+#  CLI Entry Point
+# ==============================
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Textual-based TUI code search (.py, .ipynb)."
+        description="ScopeFind: Fast incremental code search tool (Python + Textual)."
     )
     parser.add_argument(
         "start_dir",
@@ -294,17 +327,25 @@ def main() -> None:
         default=".",
         help="Search start directory (default: current directory)",
     )
+    parser.add_argument(
+        "--version",
+        action="store_true",
+        help="Show version information and exit",
+    )
     args = parser.parse_args()
+
+    if args.version:
+        print(f"ScopeFind v{__version__}")
+        sys.exit(0)
 
     start_dir = Path(args.start_dir).resolve()
     if not start_dir.is_dir():
         print(f"Not a directory: {start_dir}", file=sys.stderr)
         sys.exit(1)
 
-    app = CodeSearchApp(start_dir=start_dir)
+    app = ScopeFindApp(start_dir=start_dir)
     app.run()
 
 
 if __name__ == "__main__":
     main()
-

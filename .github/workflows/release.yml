@@ -31,9 +31,34 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # ===== Version Inject =====
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Setting version to $VERSION"
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            sed -i '' "s/__version__ = .*/__version__ = \\\"$VERSION\\\"/" ScopeFind.py
+          else
+            sed -i "s/__version__ = .*/__version__ = \"$VERSION\"/" ScopeFind.py
+          fi
+
       - name: Build binary with PyInstaller
         run: |
           pyinstaller --onefile ScopeFind.py --name ScopeFind
+
+      # ===== Rename with version =====
+      - name: Rename binary per OS
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            mv dist/ScopeFind.exe "dist/ScopeFind-windows-v${VERSION}.exe"
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            mv dist/ScopeFind "dist/ScopeFind-macos-v${VERSION}"
+          else
+            mv dist/ScopeFind "dist/ScopeFind-linux-v${VERSION}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -53,7 +78,7 @@ jobs:
         with:
           path: dist
 
-      - name: List files
+      - name: List downloaded files
         run: ls -R dist
 
       - name: Create GitHub Release
