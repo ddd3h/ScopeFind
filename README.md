@@ -1,0 +1,94 @@
+# 🔎 ScopeFind
+
+**ScopeFind** is a lightweight **TUI code search tool** built with **Python + Textual**.  
+It allows incremental literal search across project files with fast filtering and navigation.
+
+Ideal for quickly locating definitions, usages, or constants in large repositories.
+
+![ScopeFind Screenshot](./scopefind-demo.png)
+
+## ✨ Features
+
+- 🔍 **Incremental search** (search while typing)
+- 📂 **Recursive project scanning**
+- 🗂️ **Ignore common directories** such as `.git`, `__pycache__`, etc.
+- 🧮 **Sort results**  
+  - `F2` by *file name*
+  - `F3` by *modified date*
+  - `F4` by *file size*
+- 🧰 **Filters**  
+  - `F5` toggle `.py` search
+  - `F6` toggle binary search
+- 🚫 **Skips binary files** by default
+- 💻 **Works in terminals** (Linux, macOS, Windows Terminal)
+
+## 📦 Installation
+
+From GitHub Releases (recommended):
+
+👉 https://github.com/ddd3h/ScopeFind/releases
+
+Download the binary for your OS:
+
+| OS | File |
+|---|---|
+| Windows | `ScopeFind.exe` |
+| macOS | `ScopeFind-macos` |
+| Linux | `ScopeFind-linux` |
+
+⚠️ Python is **not required** for the downloaded binaries.
+
+## 🏃 Usage
+
+To search in the current directory:
+
+```bash
+ScopeFind
+````
+
+To search in a specific directory:
+
+```bash
+ScopeFind /path/to/project
+```
+
+## 🎹 Key Bindings
+
+| Key                 | Action               |
+| ------------------- | -------------------- |
+| `/`                 | Focus search box     |
+| `F2`                | Sort by name         |
+| `F3`                | Sort by date         |
+| `F4`                | Sort by size         |
+| `F5`                | Toggle `.py` search  |
+| `F6`                | Toggle binary search |
+| `↑ ↓` / `PgUp PgDn` | Navigate results     |
+| `q`                 | Quit                 |
+
+
+## 💻 Build from Source (Developer)
+
+Requires Python 3.10+.
+
+```bash
+pip install -r requirements.txt
+python ScopeFind.py
+```
+
+### Build standalone binaries (optional):
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile ScopeFind.py --name ScopeFind
+```
+
+Output will appear in `dist/`.
+
+## 🧾 License
+
+This project is released under the **MIT License**.
+© 2025 **Daisuke NISHIHAMA**
+
+## 🙌 Contributing
+
+Pull requests, feature ideas, and bug reports are welcome!
