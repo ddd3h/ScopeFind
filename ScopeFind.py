@@ -9,10 +9,11 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, DataTable, Static
+from textual.timer import Timer
 
 
 # ==============================
@@ -34,7 +35,7 @@ IGNORE_DIRS = {
     ".ipynb_checkpoints",
 }
 
-SEARCH_EXTS = {".py", ".ipynb"}
+SEARCH_EXTS = {".py", ".ipynb"}   # 改変せず（必要なら変えられる）
 MAX_MATCHES = 1000
 
 
@@ -112,6 +113,7 @@ class ScopeFindApp(App):
         ("f6", "toggle_binary", "Toggle binary"),
         ("/", "focus_search", "Focus search"),
         ("q", "quit", "Quit"),
+        ("enter", "run_search", "Run search"),  # ← Enter で検索実行
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
     ]
@@ -124,6 +126,8 @@ class ScopeFindApp(App):
         self.include_binary: bool = False
         self.sort_key: str = "name"
         self.matches: List[Match] = []
+        self.file_candidates: List[Path] = []  # ← 検索対象キャッシュ
+        self._search_timer: Optional[Timer] = None  # ← デバウンス用
 
     # --------------- UI Layout ---------------
 
@@ -142,6 +146,7 @@ class ScopeFindApp(App):
         table.cursor_type = "row"
         table.zebra_stripes = True
 
+        self.build_file_candidates()   # ← 最初に一度だけ探索
         self.update_toolbar()
         self.update_status("Enter pattern to search.")
 
@@ -155,7 +160,7 @@ class ScopeFindApp(App):
             f"Sort: {sort_name} | "
             f".py: {py_label} | "
             f"Binary: {bin_label} | "
-            f"F2/F3/F4: sort, F5/F6: filter, '/': search, q: quit"
+            f"F2/F3/F4: sort, F5/F6: filter, '/': search, Enter: search, q: quit"
         )
         self.query_one("#toolbar", Static).update(toolbar)
 
@@ -188,50 +193,36 @@ class ScopeFindApp(App):
             return
 
         matches: List[Match] = []
-        total_files = 0
+        total_files = len(self.file_candidates)
         used_files = 0
 
-        for root, dirs, files in os.walk(self.start_dir):
-            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+        for path in self.file_candidates:
+            ext = path.suffix
+            if ext == ".py" and not self.include_py:
+                continue
 
-            for name in files:
-                total_files += 1
-                path = Path(root) / name
-                ext = path.suffix
+            used_files += 1
 
-                # 拡張子 & バイナリフィルタ
-                if ext not in SEARCH_EXTS:
-                    continue
-                if ext == ".py" and not self.include_py:
-                    continue
-                if not self.include_binary and is_binary_file(path):
-                    continue
-
-                used_files += 1
-
-                try:
-                    with path.open("r", encoding="utf-8", errors="replace") as f:
-                        for lineno, line in enumerate(f, start=1):
-                            if pat in line:
-                                st = path.stat()
-                                matches.append(
-                                    Match(
-                                        path=path,
-                                        lineno=lineno,
-                                        line=line.rstrip("\n"),
-                                        mtime=st.st_mtime,
-                                        size=st.st_size,
-                                    )
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as f:
+                    for lineno, line in enumerate(f, start=1):
+                        if pat in line:
+                            st = path.stat()
+                            matches.append(
+                                Match(
+                                    path=path,
+                                    lineno=lineno,
+                                    line=line.rstrip("\n"),
+                                    mtime=st.st_mtime,
+                                    size=st.st_size,
                                 )
-                                if len(matches) >= MAX_MATCHES:
-                                    break
-                    if len(matches) >= MAX_MATCHES:
-                        break
-                except (OSError, UnicodeError):
-                    continue
-
-            if len(matches) >= MAX_MATCHES:
-                break
+                            )
+                            if len(matches) >= MAX_MATCHES:
+                                break
+                if len(matches) >= MAX_MATCHES:
+                    break
+            except (OSError, UnicodeError):
+                continue
 
         self.matches = matches
         self.sort_matches()
@@ -246,6 +237,24 @@ class ScopeFindApp(App):
 
         self.refresh_table()
 
+    # --------------- Debounce Input Change ---------------
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "pattern_input":
+            return
+
+        self.pattern = event.value
+
+        # 既存タイマーをキャンセル
+        if self._search_timer is not None:
+            self._search_timer.stop()
+
+        # 1秒入力が止まったら検索
+        self._search_timer = self.set_timer(1, self._debounced_search)
+
+    def _debounced_search(self) -> None:
+        self.run_search()
+
     # --------------- Sort ---------------
 
     def sort_matches(self) -> None:
@@ -259,14 +268,11 @@ class ScopeFindApp(App):
         elif self.sort_key == "size":
             self.matches.sort(key=lambda m: (m.size, str(m.path)), reverse=True)
 
-    # --------------- Event Handlers ---------------
-
-    def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "pattern_input":
-            self.pattern = event.value
-            self.run_search()
-
     # --------------- Key Actions ---------------
+
+    def action_run_search(self) -> None:
+        self.pattern = self.query_one("#pattern_input", Input).value
+        self.run_search()
 
     def action_focus_search(self) -> None:
         self.query_one("#pattern_input", Input).focus()
@@ -297,6 +303,7 @@ class ScopeFindApp(App):
     def action_toggle_binary(self) -> None:
         self.include_binary = not self.include_binary
         self.update_toolbar()
+        self.build_file_candidates()  # ← バイナリフィルタが変わるので再構築
         self.run_search()
 
     def action_cursor_down(self) -> None:
