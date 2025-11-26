@@ -17,8 +17,18 @@ from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, DataTable, Static
 from textual.timer import Timer
 
-from multiprocessing import Process, Queue
+import multiprocessing as mp
 import queue as queue_mod
+
+# ==============================
+#  Multiprocessing Context
+# ==============================
+# macOS などではデフォルトが "spawn" になっているので、
+# 明示的に "fork" を使うコンテキストを作る。
+if sys.platform != "win32":
+    CTX = mp.get_context("fork")
+else:
+    CTX = mp.get_context("spawn")
 
 
 # ==============================
@@ -161,7 +171,7 @@ def search_worker_process(
     ignore_dirs: set,
     search_exts: set,
     text_exts: set,
-    result_queue: Queue,
+    result_queue: mp.Queue,
 ) -> None:
     """
     別プロセスで実行される検索処理。
@@ -409,8 +419,8 @@ class ScopeFindApp(App):
         self._current_search_id: int = 0
 
         # プロセスベースの検索ワーカー
-        self._worker_proc: Optional[Process] = None
-        self._worker_queue: Optional[Queue] = None
+        self._worker_proc: Optional[mp.Process] = None
+        self._worker_queue: Optional[mp.Queue] = None
 
         # 進捗・結果（プロセスからのメッセージで更新）
         self._search_in_progress: bool = False
@@ -475,7 +485,7 @@ class ScopeFindApp(App):
         percent = int(used_files * 100 / total_files) if total_files else 0
         bar_width = 30
         filled = int(bar_width * percent / 100)
-        bar = "█" * filled + " " * (bar_width - filled)
+        bar = "▇" * filled + "." * (bar_width - filled)
 
         text = (
             f"[{bar}] {percent:3d}%  "
@@ -575,11 +585,11 @@ class ScopeFindApp(App):
         self._search_in_progress = True
         self.update_status(f"Searching for '{pat}' ...")
 
-        # Queue と Process を起動
-        q: Queue = Queue()
+        # Queue と Process を起動（コンテキストから生成）
+        q: mp.Queue = CTX.Queue()
         self._worker_queue = q
 
-        proc = Process(
+        proc: mp.Process = CTX.Process(
             target=search_worker_process,
             args=(
                 str(self.start_dir),
@@ -601,7 +611,7 @@ class ScopeFindApp(App):
     def _progress_tick(self) -> None:
         """プロセスからのメッセージを処理しつつ、進捗＆完了処理を行う。"""
         # ここでローカルに退避しておくことで、
-        # ループ途中で self._worker_queue が None になっても問題ないようにする
+        # ループ途中で self._worker_queue が None になっても問題ない
         q = self._worker_queue
         if q is None:
             return
