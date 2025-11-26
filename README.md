@@ -1,4 +1,6 @@
-# 🔎 ScopeFind
+# ScopeFind
+
+<img src="./images/scopefind-logo.png" alt="ScopeFind Logo" width="200" height="auto"/>
 
 **ScopeFind** is a lightweight **TUI code search tool** built with **Python + Textual**.  
 It allows incremental literal search across project files with fast filtering and navigation.
@@ -6,6 +8,10 @@ It allows incremental literal search across project files with fast filtering an
 Ideal for quickly locating definitions, usages, or constants in large repositories.
 
 ![ScopeFind Screenshot](./images/scopefind-demo.png)
+
+We often had so much research data that we couldn’t remember where certain information was stored. To solve this, I developed a command-line tool that allows you to search with only partial information, relying on what you remember.
+
+Since it uses a TUI instead of a GUI, it can also be used over SSH, on supercomputers, and on workstations.
 
 ## ✨ Features
 
@@ -32,9 +38,9 @@ Download the binary for your OS:
 
 | OS | File |
 |---|---|
-| Windows | `ScopeFind.exe` |
-| macOS | `ScopeFind-macos` |
-| Linux | `ScopeFind-linux` |
+| Windows | `ScopeFind-windows-v{version}.exe` |
+| macOS | `ScopeFind-macos-v{version}` |
+| Linux | `ScopeFind-linux-v{version}` |
 
 ⚠️ Python is **not required** for the downloaded binaries.
 
@@ -44,13 +50,15 @@ To search in the current directory:
 
 ```bash
 ScopeFind
-````
+```
 
 To search in a specific directory:
 
 ```bash
 ScopeFind /path/to/project
 ```
+
+![ScopeFind in action](./images/scopefind-demo.gif)
 
 ## 🎹 Key Bindings
 
@@ -87,7 +95,9 @@ Output will appear in `dist/`.
 ## 🧾 License
 
 This project is released under the **MIT License**.
+
 © 2025 **Daisuke NISHIHAMA**
+
 
 ## 🙌 Contributing
 
