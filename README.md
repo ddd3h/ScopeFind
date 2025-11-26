@@ -5,7 +5,7 @@ It allows incremental literal search across project files with fast filtering an
 
 Ideal for quickly locating definitions, usages, or constants in large repositories.
 
-![ScopeFind Screenshot](./scopefind-demo.png)
+![ScopeFind Screenshot](./images/scopefind-demo.png)
 
 ## ✨ Features
 
