@@ -63,8 +63,8 @@ MAX_MATCHES = 300
 # プレビューの最大表示文字数（短め）
 MAX_PREVIEW_CHARS = 80
 
-# Binary ON のときに無視するファイルサイズの閾値（2MB）
-BINARY_MAX_SIZE = 2 * 1024 * 1024  # 2MB
+# Binary ON のときに無視するファイルサイズの閾値（Default: 2MB）
+BINARY_MAX_SIZE = 10 * 1024 * 1024
 
 # 「テキストとして扱う拡張子」のホワイトリスト
 TEXT_EXTS = {
@@ -494,7 +494,7 @@ class ScopeFindApp(App):
         )
 
         if self._skipped_large_files and self.include_binary and not self.include_py:
-            text += f"  skipped>2MB: {self._skipped_large_files}"
+            text += f"  skipped>{BINARY_MAX_SIZE // (1024 * 1024)}MB: {self._skipped_large_files}"
 
         progress_widget.update(text)
 
@@ -683,7 +683,7 @@ class ScopeFindApp(App):
                     msg_text = f"No matches for: '{pat}'"
 
                 if self._skipped_large_files and self.include_binary and not self.include_py:
-                    msg_text += f" (skipped {self._skipped_large_files} files >2MB in binary mode)"
+                    msg_text += f" (skipped {self._skipped_large_files} files >{BINARY_MAX_SIZE // (1024 * 1024)}MB in binary mode)"
 
                 self.update_status(msg_text)
 
