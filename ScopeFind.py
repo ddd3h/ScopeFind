@@ -47,7 +47,8 @@ IGNORE_DIRS = {
 # .py トグル ON のときに対象にする拡張子
 SEARCH_EXTS = {".py", ".ipynb"}
 
-MAX_MATCHES = 100
+# 検索結果の最大数
+MAX_MATCHES = 300
 
 # プレビューの最大表示文字数（短め）
 MAX_PREVIEW_CHARS = 80
