@@ -60,6 +60,8 @@ ScopeFind /path/to/project
 
 ![ScopeFind in action](./images/scopefind-demo.gif)
 
+日本語での軽い使い方は [ScopeFindの使い方 #Linux - Qiita](https://qiita.com/ddd3h/items/ffbe4396683b2689c572) を参照してください。
+
 ## 🎹 Key Bindings
 
 | Key                 | Action               |
