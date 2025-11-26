@@ -56,6 +56,23 @@ def is_binary_file(path: Path, blocksize: int = 1024) -> bool:
 
 
 # ==============================
+#  Size Formatter
+# ==============================
+def format_size(size: int) -> str:
+    """バイト数を B / kB / MB / GB / TB などに整形して返す."""
+    units = ["B", "kB", "MB", "GB", "TB", "PB"]
+    s = float(size)
+    for unit in units:
+        if s < 1024.0 or unit == units[-1]:
+            # 小数1桁まで。整数なら .0 を落とす
+            if s >= 10 or s.is_integer():
+                return f"{s:.0f}{unit}" if s.is_integer() else f"{s:.1f}{unit}"
+            else:
+                return f"{s:.1f}{unit}"
+        s /= 1024.0
+
+
+# ==============================
 #  Data Model
 # ==============================
 @dataclass
@@ -178,7 +195,8 @@ class ScopeFindApp(App):
             preview = m.line.replace("\t", "    ")
             if len(preview) > 120:
                 preview = preview[:117] + "..."
-            size_str = str(m.size)
+            # ここを変更：バイト数を人間向け表示にする
+            size_str = format_size(m.size)
             dt_str = datetime.fromtimestamp(m.mtime).strftime("%Y-%m-%d %H:%M")
             table.add_row(str(idx), relpath, str(m.lineno), preview, size_str, dt_str)
 
