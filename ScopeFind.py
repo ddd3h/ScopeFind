@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Input, DataTable, Static
@@ -35,7 +36,7 @@ IGNORE_DIRS = {
     ".ipynb_checkpoints",
 }
 
-SEARCH_EXTS = {".py", ".ipynb"}   # 改変せず（必要なら変えられる）
+SEARCH_EXTS = {".py", ".ipynb"}   # Toggle .py が ON のときに使用
 MAX_MATCHES = 1000
 
 
@@ -130,7 +131,7 @@ class ScopeFindApp(App):
         ("f6", "toggle_binary", "Toggle binary"),
         ("/", "focus_search", "Focus search"),
         ("q", "quit", "Quit"),
-        ("enter", "run_search", "Run search"),  # ← Enter で検索実行
+        ("enter", "run_search", "Run search"),
         ("j", "cursor_down", "Down"),
         ("k", "cursor_up", "Up"),
     ]
@@ -143,8 +144,8 @@ class ScopeFindApp(App):
         self.include_binary: bool = False
         self.sort_key: str = "name"
         self.matches: List[Match] = []
-        self.file_candidates: List[Path] = []  # ← 検索対象キャッシュ
-        self._search_timer: Optional[Timer] = None  # ← デバウンス用
+        self.file_candidates: List[Path] = []  # 検索対象ファイルのキャッシュ
+        self._search_timer: Optional[Timer] = None  # デバウンス用
 
     # --------------- UI Layout ---------------
 
@@ -163,7 +164,7 @@ class ScopeFindApp(App):
         table.cursor_type = "row"
         table.zebra_stripes = True
 
-        self.build_file_candidates()   # ← 最初に一度だけ探索
+        self.build_file_candidates()   # 最初に一度だけ探索
         self.update_toolbar()
         self.update_status("Enter pattern to search.")
 
@@ -195,7 +196,6 @@ class ScopeFindApp(App):
             preview = m.line.replace("\t", "    ")
             if len(preview) > 120:
                 preview = preview[:117] + "..."
-            # ここを変更：バイト数を人間向け表示にする
             size_str = format_size(m.size)
             dt_str = datetime.fromtimestamp(m.mtime).strftime("%Y-%m-%d %H:%M")
             table.add_row(str(idx), relpath, str(m.lineno), preview, size_str, dt_str)
@@ -203,23 +203,38 @@ class ScopeFindApp(App):
     # --------------- File Candidate Build (Caching) ---------------
 
     def build_file_candidates(self) -> None:
+        """検索対象ファイルの一覧を構築する。
+
+        - IGNORE_DIRS は常に除外
+        - include_binary=False の時:
+            - include_py=True の場合のみ SEARCH_EXTS で拡張子を絞る
+            - バイナリファイルは除外
+        """
         candidates: List[Path] = []
         for root, dirs, files in os.walk(self.start_dir):
+            # 無視ディレクトリを除外
             dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+
             for name in files:
                 path = Path(root) / name
 
-                # Binary OFF → バイナリは除外
-                if not self.include_binary and is_binary_file(path):
-                    continue
+                if not self.include_binary:
+                    # Toggle .py が ON のときだけ拡張子フィルタを有効にする
+                    if self.include_py and path.suffix not in SEARCH_EXTS:
+                        continue
+
+                    # 念のためバイナリチェック
+                    if is_binary_file(path):
+                        continue
 
                 candidates.append(path)
 
         self.file_candidates = candidates
 
-    # --------------- Search Logic ---------------
+    # --------------- Search Logic (Parallel) ---------------
 
     def run_search(self) -> None:
+        """パターン検索本体。ThreadPoolExecutor で並列実行。"""
         pat = self.pattern
         if not pat:
             self.matches = []
@@ -227,37 +242,66 @@ class ScopeFindApp(App):
             self.refresh_table()
             return
 
-        matches: List[Match] = []
         total_files = len(self.file_candidates)
-        used_files = 0
 
-        for path in self.file_candidates:
+        def search_one(path: Path) -> List[Match]:
+            """1ファイルを検索して、ローカルな Match のリストを返す。"""
             ext = path.suffix
-            if ext == ".py" and not self.include_py:
-                continue
 
-            used_files += 1
+            # include_py=False の時は .py を完全除外
+            if ext == ".py" and not self.include_py:
+                return []
 
             try:
+                st = path.stat()
+                mtime = st.st_mtime
+                size = st.st_size
+
+                local_matches: List[Match] = []
                 with path.open("r", encoding="utf-8", errors="replace") as f:
                     for lineno, line in enumerate(f, start=1):
                         if pat in line:
-                            st = path.stat()
-                            matches.append(
+                            local_matches.append(
                                 Match(
                                     path=path,
                                     lineno=lineno,
                                     line=line.rstrip("\n"),
-                                    mtime=st.st_mtime,
-                                    size=st.st_size,
+                                    mtime=mtime,
+                                    size=size,
                                 )
                             )
-                            if len(matches) >= MAX_MATCHES:
+                            # 1ファイルにあまりに多くマッチすると遅いので適当に打ち切り
+                            if len(local_matches) >= 50:
                                 break
-                if len(matches) >= MAX_MATCHES:
-                    break
+                return local_matches
             except (OSError, UnicodeError):
-                continue
+                return []
+
+        matches: List[Match] = []
+        used_files = 0
+
+        # I/O bound なので CPU コア数より多めにしても OK
+        max_workers = min(32, (os.cpu_count() or 4) * 2)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            futures = [ex.submit(search_one, p) for p in self.file_candidates]
+
+            for fut in as_completed(futures):
+                res = fut.result()
+                used_files += 1
+
+                if res:
+                    remain = MAX_MATCHES - len(matches)
+                    if remain <= 0:
+                        break
+
+                    if len(res) > remain:
+                        matches.extend(res[:remain])
+                    else:
+                        matches.extend(res)
+
+                    if len(matches) >= MAX_MATCHES:
+                        break
 
         self.matches = matches
         self.sort_matches()
@@ -331,14 +375,21 @@ class ScopeFindApp(App):
         self.refresh_table()
 
     def action_toggle_py(self) -> None:
+        """Toggle .py ボタン。
+
+        - include_py を切り替え
+        - それに合わせて file_candidates も再構築（SEARCH_EXTS フィルタが変わるため）
+        """
         self.include_py = not self.include_py
         self.update_toolbar()
+        self.build_file_candidates()
         self.run_search()
 
     def action_toggle_binary(self) -> None:
         self.include_binary = not self.include_binary
         self.update_toolbar()
-        self.build_file_candidates()  # ← バイナリフィルタが変わるので再構築
+        # バイナリフィルタが変わるので再構築
+        self.build_file_candidates()
         self.run_search()
 
     def action_cursor_down(self) -> None:
