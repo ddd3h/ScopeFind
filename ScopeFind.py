@@ -182,6 +182,23 @@ class ScopeFindApp(App):
             dt_str = datetime.fromtimestamp(m.mtime).strftime("%Y-%m-%d %H:%M")
             table.add_row(str(idx), relpath, str(m.lineno), preview, size_str, dt_str)
 
+    # --------------- File Candidate Build (Caching) ---------------
+
+    def build_file_candidates(self) -> None:
+        candidates: List[Path] = []
+        for root, dirs, files in os.walk(self.start_dir):
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS]
+            for name in files:
+                path = Path(root) / name
+
+                # Binary OFF → バイナリは除外
+                if not self.include_binary and is_binary_file(path):
+                    continue
+
+                candidates.append(path)
+
+        self.file_candidates = candidates
+
     # --------------- Search Logic ---------------
 
     def run_search(self) -> None:
